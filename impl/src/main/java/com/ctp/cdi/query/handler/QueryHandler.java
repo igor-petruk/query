@@ -4,9 +4,6 @@ import java.io.Serializable;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
 
-import javassist.util.proxy.ProxyFactory;
-import javassist.util.proxy.ProxyObject;
-
 import javax.enterprise.event.Event;
 import javax.enterprise.inject.Any;
 import javax.enterprise.inject.Instance;
@@ -15,6 +12,7 @@ import javax.interceptor.AroundInvoke;
 import javax.interceptor.InvocationContext;
 import javax.persistence.EntityManager;
 
+import org.apache.commons.proxy.Invoker;
 import org.jboss.solder.logging.Logger;
 
 import com.ctp.cdi.query.builder.QueryBuilder;
@@ -29,7 +27,7 @@ import com.ctp.cdi.query.meta.Initialized;
  * 
  * @author thomashug
  */
-public class QueryHandler implements Serializable {
+public class QueryHandler implements Serializable, Invoker {
 
     private static final long serialVersionUID = 1L;
 
@@ -47,11 +45,19 @@ public class QueryHandler implements Serializable {
     @Inject
     private Event<CdiQueryInvocationContext> contextCreated;
     
+    private Class<?> originalTarget;
+    
+    @Override
+    public Object invoke(Object proxy, Method method, Object[] parameters) throws Throwable {
+        InvocationContext context = new QueryInvocationContext(proxy, method, parameters);
+        return handle(context);
+    }
+    
     @AroundInvoke
     public Object handle(InvocationContext context) {
         CdiQueryInvocationContext queryContext = null;
         try {
-            Class<?> daoClass = extractFromProxy(context);
+            Class<?> daoClass = originalTarget;
             DaoComponent dao = components.lookupComponent(daoClass);
             DaoMethod method = components.lookupMethod(daoClass, context.getMethod());
             queryContext = createContext(context, dao, method);
@@ -72,33 +78,6 @@ public class QueryHandler implements Serializable {
         return queryContext;
     }
     
-    protected Class<?> extractFromProxy(InvocationContext ctx) {
-        Class<?> proxyClass = ctx.getTarget().getClass();
-        if (ProxyFactory.isProxyClass(proxyClass)) {
-            if (isInterfaceProxy(proxyClass)) {
-                return extractFromInterface(proxyClass);
-            } else {
-                return proxyClass.getSuperclass();
-            }
-        }
-        return proxyClass;
-    }
-    
-    private boolean isInterfaceProxy(Class<?> proxyClass) {
-        Class<?>[] interfaces = proxyClass.getInterfaces();
-        return Object.class.equals(proxyClass.getSuperclass()) && 
-                interfaces != null && interfaces.length > 0;
-    }
-    
-    private Class<?> extractFromInterface(Class<?> proxyClass) {
-        for (Class<?> interFace : proxyClass.getInterfaces()) {
-            if (!ProxyObject.class.equals(interFace)) {
-                return interFace;
-            }
-        }
-        return null;
-    }
-    
     private EntityManager resolveEntityManager(DaoComponent dao) {
         Annotation[] qualifiers = extractFromTarget(dao.getDaoClass());
         if (qualifiers == null || qualifiers.length == 0) {
@@ -112,11 +91,19 @@ public class QueryHandler implements Serializable {
 
     private Annotation[] extractFromTarget(Class<?> target) {
         try {
-            Method method = target.getDeclaredMethod("getEntityManager");
+            Method method = originalTarget.getDeclaredMethod("getEntityManager");
             return method.getAnnotations();
         } catch (Exception e) {
             return null;
         }
+    }
+
+    public Class<?> getOriginalTarget() {
+        return originalTarget;
+    }
+
+    public void setOriginalTarget(Class<?> originalTarget) {
+        this.originalTarget = originalTarget;
     }
 
 }

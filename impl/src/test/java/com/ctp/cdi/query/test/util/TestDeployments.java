@@ -9,9 +9,11 @@ import org.jboss.shrinkwrap.api.ArchivePath;
 import org.jboss.shrinkwrap.api.ArchivePaths;
 import org.jboss.shrinkwrap.api.Filter;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
-import org.jboss.shrinkwrap.api.asset.EmptyAsset;
+import org.jboss.shrinkwrap.api.asset.StringAsset;
 import org.jboss.shrinkwrap.api.spec.JavaArchive;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
+import org.jboss.shrinkwrap.descriptor.api.Descriptors;
+import org.jboss.shrinkwrap.descriptor.api.beans10.BeansDescriptor;
 import org.jboss.shrinkwrap.impl.base.filter.ExcludeRegExpPaths;
 import org.jboss.shrinkwrap.resolver.api.DependencyResolvers;
 import org.jboss.shrinkwrap.resolver.api.maven.MavenDependencyResolver;
@@ -25,6 +27,9 @@ import com.ctp.cdi.query.Modifying;
 import com.ctp.cdi.query.NonEntity;
 import com.ctp.cdi.query.Query;
 import com.ctp.cdi.query.QueryExtension;
+import com.ctp.cdi.query.QueryHandlerBeanLifecycle;
+import com.ctp.cdi.query.QueryHandling;
+import com.ctp.cdi.query.QueryHandlingLiteral;
 import com.ctp.cdi.query.QueryParam;
 import com.ctp.cdi.query.QueryResult;
 import com.ctp.cdi.query.WithEntityManager;
@@ -68,7 +73,7 @@ public abstract class TestDeployments {
         Logging.reconfigure();
         WebArchive archive = ShrinkWrap.create(WebArchive.class, "test.war")
                 .addAsLibrary(createApiArchive())
-                .addClasses(QueryExtension.class)
+                .addClasses(QueryExtension.class, QueryHandlerBeanLifecycle.class, QueryHandling.class, QueryHandlingLiteral.class)
                 .addClasses(TransactionalTestCase.class)
                 .addPackages(true, TEST_FILTER, createImplPackages())
                 .addPackages(true, AuditedEntity.class.getPackage())
@@ -77,8 +82,11 @@ public abstract class TestDeployments {
                 .addAsWebInfResource(classpathResource("test-persistence.xml", "META-INF/persistence.xml"), ArchivePaths.create("classes/META-INF/persistence.xml"))
                 .addAsWebInfResource("META-INF/services/javax.enterprise.inject.spi.Extension",
                         ArchivePaths.create("classes/META-INF/services/javax.enterprise.inject.spi.Extension"))
-                .addAsWebInfResource(EmptyAsset.INSTANCE, ArchivePaths.create("beans.xml"));
-        
+                .addAsWebInfResource(
+                        new StringAsset(Descriptors.importAs(BeansDescriptor.class)
+                            .fromFile("src/main/resources/META-INF/beans.xml")
+                            .exportAsString()), 
+                        ArchivePaths.create("beans.xml"));
         return addDependencies(archive);
     }
 
@@ -109,6 +117,9 @@ public abstract class TestDeployments {
     public static WebArchive addDependencies(WebArchive archive) {
         archive.addAsLibraries(resolver()
                 .artifact("com.mysema.querydsl:querydsl-jpa")
+                .artifact("org.apache.commons:commons-proxy")
+                .artifact("org.apache.deltaspike.core:deltaspike-core-api")
+                .artifact("org.apache.deltaspike.core:deltaspike-core-impl")
                 .resolveAsFiles());
         if (includeLibs()) {
             archive.addAsLibraries(resolver()
